@@ -1,0 +1,104 @@
+upstream web_app {
+  server ${WEB_APP_HOSTNAME}:${WEB_APP_PORT};
+}
+
+proxy_cache_path /var/cache/nginx/static_cache levels=1:2 keys_zone=static_cache:10m max_size=10g use_temp_path=off inactive=120m;
+proxy_cache_key "$scheme$request_method$host$request_uri";
+
+server {
+  listen ${WEB_APP_PORT};
+  # define your domain
+  server_name ${WEB_APP_HOSTNAME};
+
+  # define the public application root
+  root   /app/static/www;
+  index  index.html;
+
+  # define where Nginx should write its logs
+  access_log /dev/stdout;
+  access_log ${NGINX_ACCESS_LOG};
+  # static assets under any directory
+  location ~* ^.+\.(?:avif|css|cur|eot|gif|gz|htc|html|ico|jpe?g|js|mp4|ogg|ogv|otf|png|svg|svgz|ttf|webm|woff|woff2|xml)$ {
+    if ( $http_if_none_match = $uri ) {
+      return 304;
+    }
+    proxy_cache static_cache;
+
+    # ignore header
+    proxy_ignore_headers Set-Cookie;
+    proxy_ignore_headers Cache-Control;
+    proxy_hide_header Cache-Control;
+
+    expires 30d;
+    add_header Cache-Control public;
+    add_header X-XSS-Protection "1; mode=block";
+    add_header X-Content-Type-Options nosniff;
+    add_header X-Cache-Status $upstream_cache_status;
+    # No need to bleed constant updates. Send the all shebang in one fell swoop.
+    tcp_nodelay off;
+
+    # Set the OS file cache.
+    open_file_cache max=3000 inactive=120s;
+    open_file_cache_valid 45s;
+    open_file_cache_min_uses 2;
+    open_file_cache_errors off;
+    # Send compressed files when requested
+    gzip_static on;
+  gzip_types *;
+    gzip_proxied any;
+    break;
+  }
+
+  location / {
+    try_files $uri @backend;
+  }
+
+  # send non-static file requests to the app server
+  location @backend {
+    # Note: When @backend is Rails 4.x this setting is redundant.
+    # Rails returns headers which prevent NGINX from engaging the cache
+    proxy_cache static_cache;
+    # Proxy headers are sent to @backend
+    proxy_set_header Host $http_host;
+    proxy_set_header X-Real-IP $remote_addr;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_set_header X-Request-Start "t=${msec}";
+    proxy_set_header Upgrade $http_upgrade;
+    proxy_set_header Connection "upgrade";
+
+    # These headers are returned as part of the response
+    add_header X-Cache-Status $upstream_cache_status;
+    # output Cache-Control recieved from upstream
+    add_header X-Cache-Control $upstream_http_cache_control;
+    # Security headers
+    add_header Strict-Transport-Security "max-age=31536000; includeSubDomains; preload";
+    add_header Referrer-Policy same-origin;
+
+    proxy_redirect off;
+    proxy_pass http://web_app;
+  }
+
+  # static content, errors, favicon, etc.
+  error_page 500 502 503 504 /50x.html;
+  location = /50x.html {
+    root /app/static/errors;
+    internal;
+  }
+  error_page 404 /404.html;
+  location = /404.html {
+    root /app/static/errors;
+    internal;
+  }
+  location = /favicon.ico {
+    expires 1y;
+    root   /app/static;
+    access_log off;
+    log_not_found off;
+  }
+  location = /robots.txt {
+    expires 1d;
+    root   /app/static;
+    access_log off;
+    log_not_found off;
+  }
+}

@@ -1,0 +1,34 @@
+# ************************************************************************************
+# STAGE 1: build all gulp-related assets
+# NOTE: we are locked at Node 10.x until we upgrade to Gulp 4 or transition to Webpack
+# ************************************************************************************
+FROM node:10.19.0-alpine as asset_build
+# Add minimal dependencies
+WORKDIR /source
+# Build a cache of all assets (we'll extract only what we need later)
+ENV WORKDIR /source
+RUN apk add --update --progress --quiet git curl build-base autoconf automake python2 libnotify libtool libpng-dev zlib-dev pkgconfig nasm
+RUN npm config set registry https://registry.npmjs.org/ && npm config set loglevel warn && npm set progress=true
+RUN npm install --global --prefix ./global gulp@3.9.1
+# Copy over asset dependencies
+COPY package.json      /source
+COPY package-lock.json /source
+# RUN
+RUN npm install --silent
+COPY assets        /source/assets
+COPY bin           /source/bin
+COPY gulp          /source/gulp
+COPY [".babelrc",".eslintrc.json",".jshintrc","gulpfile.js","/source/"]
+RUN cd /source/assets/cares && npm install
+RUN npm rebuild node-sass
+# # This compiles and gzips all assets to /source/nginx/assets
+RUN NODE_ENV=production /source/global/bin/gulp build
+
+# Simple, simple, simple
+FROM nginx:1.21.0-alpine as nginx_build
+COPY nginx/templates/default.conf.template /etc/nginx/templates/
+COPY nginx/static /app/static
+# Lastly, copy over files that may have changed since the last build
+COPY --from=asset_build /source/nginx/assets /app/static/www
+RUN mkdir -p /var/cache/nginx/asset_cache
+RUN chown nginx:nginx /var/cache/nginx/asset_cache

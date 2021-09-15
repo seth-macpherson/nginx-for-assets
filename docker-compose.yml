@@ -1,0 +1,45 @@
+# local
+version: '3.5'
+volumes:
+  rails-gems:
+  asset-cache:
+
+services:
+  # This section should be replaced by your existing web app
+  app:
+    # https://github.com/tobilg/docker-mini-webserver
+    # returns simple hello world message at port 3000
+    image: tobilg/mini-webserver
+    container_name: app
+    volumes:
+      - ./example-app:/app/public:cached
+    networks:
+      - local-network
+
+  # Test this NGINX and the sample app above
+  # By opening http://localhost:5000
+  # If working, you should see "hello world"
+  nginx:
+    build:
+      context: .
+      dockerfile: Dockerfile.nginx
+    environment:
+      - WEB_APP_PORT=3000
+      - WEB_APP_HOSTNAME=app
+    container_name: nginx
+    volumes:
+      # Generated assets are mapped here:
+      - ./nginx/assets:/app/static/www:cached
+      - ./nginx/static/errors:/app/static/errors:cached
+      # Optionally, allow local index to override the default 500 error
+      # - ./nginx/local/index.html:/app/static/errors/50x.html:cached
+    networks:
+      - local-network
+    depends_on:
+      - app
+    ports:
+      - "5000:3000"
+
+networks:
+  local-network:
+    name: my-local-network

@@ -1,0 +1,10 @@
+# Start with the smallest NGINX build we can (1.21.3 is current as of Sept 2021)
+FROM nginx:1.21.3-alpine
+# Enable access log output to /stdout
+ENV NGINX_ACCESS_LOG=yes
+COPY nginx/templates/default.conf.template /etc/nginx/templates/
+COPY nginx/templates/nginx.conf /etc/nginx/
+COPY nginx/static /app/static
+# This folder is used by NGINX for disk-based cache if ram-based cache buffer is full
+RUN mkdir -p /var/cache/nginx/static_cache
+RUN chown nginx:nginx /var/cache/nginx/static_cache
